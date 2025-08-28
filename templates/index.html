@@ -12,7 +12,7 @@
     <main class="container">
       <header class="header">
         <h1>Balanço Patrimonial</h1>
-        <p>Envie uma planilha Excel (ou CSV) contendo Ativo e Passivo para calcular o Patrimônio Líquido.</p>
+        <p>Envie uma planilha Excel (ou CSV) ou um PDF contendo Ativo e Passivo para calcular o Patrimônio Líquido.</p>
       </header>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
@@ -26,8 +26,8 @@
       {% endwith %}
 
       <form class="card" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
-        <label for="file" class="label">Arquivo (.xlsx, .xls, .csv)</label>
-        <input id="file" name="file" type="file" accept=".xlsx,.xls,.csv" required>
+        <label for="file" class="label">Arquivo (.xlsx, .xls, .csv, .pdf)</label>
+        <input id="file" name="file" type="file" accept=".xlsx,.xls,.csv,.pdf" required>
         <button type="submit" class="btn">Calcular</button>
       </form>
 

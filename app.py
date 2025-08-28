@@ -5,6 +5,9 @@ from typing import Dict, Optional, Tuple
 import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, flash
 
+import pdfplumber
+import PyPDF2
+
 
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
@@ -214,6 +217,74 @@ def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
 	return {}, "Não foi possível identificar colunas de Ativo e Passivo automaticamente."
 
 
+def extract_tables_from_pdf(content: bytes) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+	"""
+	Extrai tabelas de um PDF usando pdfplumber e PyPDF2 como fallback.
+	
+	Retorna:
+		(DataFrame, error_message)
+	"""
+	try:
+		# Tenta primeiro com pdfplumber (melhor para tabelas estruturadas)
+		pdf_buffer = io.BytesIO(content)
+		with pdfplumber.open(pdf_buffer) as pdf:
+			all_tables = []
+			for page in pdf.pages:
+				tables = page.extract_tables()
+				if tables:
+					all_tables.extend(tables)
+			
+			if all_tables:
+				# Concatena todas as tabelas encontradas
+				dfs = []
+				for table in all_tables:
+					if table and len(table) > 1:  # Pula tabelas vazias ou com apenas cabeçalho
+						# Remove linhas vazias
+						table = [row for row in table if any(cell and str(cell).strip() for cell in row)]
+						if table:
+							df = pd.DataFrame(table[1:], columns=table[0])
+							dfs.append(df)
+				
+				if dfs:
+					# Combina todas as tabelas
+					result_df = pd.concat(dfs, ignore_index=True)
+					# Remove colunas completamente vazias
+					result_df = result_df.dropna(how='all', axis=1)
+					# Remove linhas completamente vazias
+					result_df = result_df.dropna(how='all', axis=0)
+					
+					if not result_df.empty:
+						return result_df, None
+		
+		# Fallback para PyPDF2 (extração de texto simples)
+		pdf_buffer.seek(0)
+		reader = PyPDF2.PdfReader(pdf_buffer)
+		text_content = ""
+		for page in reader.pages:
+			text_content += page.extract_text() + "\n"
+		
+		# Tenta extrair dados estruturados do texto
+		lines = text_content.split('\n')
+		data_rows = []
+		for line in lines:
+			line = line.strip()
+			if line and len(line.split()) > 1:
+				# Tenta dividir por espaços múltiplos ou caracteres especiais
+				parts = re.split(r'\s{2,}|\t', line)
+				if len(parts) >= 2:
+					data_rows.append(parts)
+		
+		if data_rows and len(data_rows) > 1:
+			# Cria DataFrame do texto extraído
+			df = pd.DataFrame(data_rows[1:], columns=data_rows[0])
+			return df, None
+		
+		return None, "Não foi possível extrair tabelas estruturadas do PDF."
+		
+	except Exception as exc:
+		return None, f"Erro ao processar PDF: {exc}"
+
+
 def read_table_from_file_storage(file_storage) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
 	filename = (file_storage.filename or "").lower()
 	content = file_storage.read()
@@ -221,6 +292,8 @@ def read_table_from_file_storage(file_storage) -> Tuple[Optional[pd.DataFrame], 
 
 	# Tenta por extensão primeiro
 	try:
+		if filename.endswith(".pdf"):
+			return extract_tables_from_pdf(content)
 		if filename.endswith(".xlsx") or filename.endswith(".xlsm"):
 			df = pd.read_excel(buffer, engine="openpyxl")
 			return df, None
@@ -234,7 +307,11 @@ def read_table_from_file_storage(file_storage) -> Tuple[Optional[pd.DataFrame], 
 	except Exception as exc:
 		return None, f"Erro ao ler arquivo: {exc}"
 
-	# Se extensão desconhecida, tenta Excel e depois CSV
+	# Se extensão desconhecida, tenta PDF, Excel e depois CSV
+	try:
+		return extract_tables_from_pdf(content)
+	except Exception:
+		pass
 	try:
 		buffer.seek(0)
 		df = pd.read_excel(buffer, engine="openpyxl")

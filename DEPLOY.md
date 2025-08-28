@@ -21,7 +21,7 @@ git init
 git add .
 git commit -m "Primeira versão: aplicação de balanço patrimonial"
 git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/balanco-patrimonial.git
+git remote add origin https://github.com/TiagoCoder2023/balanco-patrimonial.git
 git push -u origin main
 ```
 
