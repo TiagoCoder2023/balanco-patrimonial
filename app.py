@@ -30,12 +30,38 @@ def _find_column(candidates, columns_lower):
 
 
 def _coerce_numeric(series: pd.Series) -> pd.Series:
-	return pd.to_numeric(series, errors="coerce")
+	"""
+	Converte uma série para valores numéricos, lidando com formatos brasileiros.
+	"""
+	# Primeiro tenta conversão direta
+	numeric = pd.to_numeric(series, errors="coerce")
+	
+	# Se todos os valores são NaN, tenta limpar o formato
+	if numeric.isna().all():
+		# Remove caracteres não numéricos exceto vírgula e ponto
+		cleaned = series.astype(str).str.replace(r'[^\d,.-]', '', regex=True)
+		# Substitui vírgula por ponto para decimais
+		cleaned = cleaned.str.replace(',', '.')
+		# Remove pontos de milhares (mantém apenas o último ponto)
+		cleaned = cleaned.str.replace(r'\.(?=.*\.)', '', regex=True)
+		# Converte para numérico
+		numeric = pd.to_numeric(cleaned, errors="coerce")
+	
+	return numeric
 
 
 def _sum_numeric(series: pd.Series) -> float:
+	"""
+	Soma valores numéricos de uma série, ignorando valores NaN.
+	"""
 	numeric = _coerce_numeric(series)
-	return float(pd.Series(numeric).fillna(0).sum())
+	print(f"DEBUG: Série original: {series.tolist()}")
+	print(f"DEBUG: Série numérica: {numeric.tolist()}")
+	print(f"DEBUG: Valores não-NaN: {numeric.dropna().tolist()}")
+	
+	sum_result = float(pd.Series(numeric).fillna(0).sum())
+	print(f"DEBUG: Soma calculada: {sum_result}")
+	return sum_result
 
 
 def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
@@ -48,8 +74,17 @@ def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
 	if df is None or df.empty:
 		return {}, "Planilha vazia ou inválida."
 
+	# Debug: Mostra informações sobre o DataFrame
+	print(f"DEBUG: DataFrame shape: {df.shape}")
+	print(f"DEBUG: Colunas: {list(df.columns)}")
+	print(f"DEBUG: Primeiras 5 linhas:")
+	print(df.head())
+	print(f"DEBUG: Tipos de dados:")
+	print(df.dtypes)
+
 	# Padroniza nomes de colunas
 	columns_lower = {col: _normalize_string(str(col)) for col in df.columns}
+	print(f"DEBUG: Colunas normalizadas: {columns_lower}")
 
 	# 1) Caso com colunas separadas para Ativo e Passivo
 	ativo_col = None
@@ -59,9 +94,20 @@ def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
 			ativo_col = original
 		if "passivo" in lowered or "liab" in lowered or "obrig" in lowered:
 			passivo_col = original
+	
+	print(f"DEBUG: Coluna ativo encontrada: {ativo_col}")
+	print(f"DEBUG: Coluna passivo encontrada: {passivo_col}")
+	
 	if ativo_col and passivo_col:
+		print(f"DEBUG: Valores da coluna ativo: {df[ativo_col].tolist()}")
+		print(f"DEBUG: Valores da coluna passivo: {df[passivo_col].tolist()}")
+		
 		total_ativos = _sum_numeric(df[ativo_col])
 		total_passivos = _sum_numeric(df[passivo_col])
+		
+		print(f"DEBUG: Total ativos calculado: {total_ativos}")
+		print(f"DEBUG: Total passivos calculado: {total_passivos}")
+		
 		pl = total_ativos - total_passivos
 		return (
 			{
@@ -290,39 +336,58 @@ def read_table_from_file_storage(file_storage) -> Tuple[Optional[pd.DataFrame], 
 	content = file_storage.read()
 	buffer = io.BytesIO(content)
 
+	print(f"DEBUG: Tentando ler arquivo: {filename}")
+	print(f"DEBUG: Tamanho do arquivo: {len(content)} bytes")
+
 	# Tenta por extensão primeiro
 	try:
 		if filename.endswith(".pdf"):
+			print("DEBUG: Processando como PDF")
 			return extract_tables_from_pdf(content)
 		if filename.endswith(".xlsx") or filename.endswith(".xlsm"):
-			df = pd.read_excel(buffer, engine="openpyxl")
+			print("DEBUG: Processando como Excel (.xlsx/.xlsm)")
+			buffer.seek(0)
+			df = pd.read_excel(buffer, engine="openpyxl", header=0)
+			print(f"DEBUG: Excel lido com sucesso. Shape: {df.shape}")
 			return df, None
 		if filename.endswith(".xls"):
-			df = pd.read_excel(buffer, engine="xlrd")
+			print("DEBUG: Processando como Excel (.xls)")
+			buffer.seek(0)
+			df = pd.read_excel(buffer, engine="xlrd", header=0)
+			print(f"DEBUG: Excel lido com sucesso. Shape: {df.shape}")
 			return df, None
 		if filename.endswith(".csv"):
+			print("DEBUG: Processando como CSV")
 			buffer.seek(0)
-			df = pd.read_csv(buffer, sep=None, engine="python")
+			df = pd.read_csv(buffer, sep=None, engine="python", header=0)
+			print(f"DEBUG: CSV lido com sucesso. Shape: {df.shape}")
 			return df, None
 	except Exception as exc:
+		print(f"DEBUG: Erro ao ler arquivo: {exc}")
 		return None, f"Erro ao ler arquivo: {exc}"
 
 	# Se extensão desconhecida, tenta PDF, Excel e depois CSV
+	print("DEBUG: Extensão desconhecida, tentando diferentes formatos...")
 	try:
 		return extract_tables_from_pdf(content)
-	except Exception:
+	except Exception as e:
+		print(f"DEBUG: Falha ao processar como PDF: {e}")
 		pass
 	try:
 		buffer.seek(0)
-		df = pd.read_excel(buffer, engine="openpyxl")
+		df = pd.read_excel(buffer, engine="openpyxl", header=0)
+		print(f"DEBUG: Excel lido com sucesso (fallback). Shape: {df.shape}")
 		return df, None
-	except Exception:
+	except Exception as e:
+		print(f"DEBUG: Falha ao processar como Excel: {e}")
 		pass
 	try:
 		buffer.seek(0)
-		df = pd.read_csv(buffer, sep=None, engine="python")
+		df = pd.read_csv(buffer, sep=None, engine="python", header=0)
+		print(f"DEBUG: CSV lido com sucesso (fallback). Shape: {df.shape}")
 		return df, None
 	except Exception as exc:
+		print(f"DEBUG: Falha ao processar como CSV: {exc}")
 		return None, f"Formato não suportado ou arquivo inválido: {exc}"
 
 
