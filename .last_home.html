@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>Balanço Patrimonial</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>Balanço Patrimonial</h1>
+        <p>Envie uma planilha Excel (ou CSV) contendo Ativo e Passivo para calcular o Patrimônio Líquido.</p>
+      </header>
+
+      
+        
+      
+
+      <form class="card" action="/upload" method="post" enctype="multipart/form-data">
+        <label for="file" class="label">Arquivo (.xlsx, .xls, .csv)</label>
+        <input id="file" name="file" type="file" accept=".xlsx,.xls,.csv" required>
+        <button type="submit" class="btn">Calcular</button>
+      </form>
+
+      <footer class="footer">
+        <small>Compatível com iOS (Safari). Nenhum dado é salvo no servidor.</small>
+      </footer>
+    </main>
+  </body>
+</html>

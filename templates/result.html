@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Resultado - Balanço Patrimonial</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>Resultado</h1>
+      </header>
+
+      {% if result.aviso %}
+        <div class="flash info">{{ result.aviso }}</div>
+      {% endif %}
+
+      <section class="stats">
+        <div class="stat">
+          <div class="stat-label">Total de Ativos</div>
+          <div class="stat-value">R$ {{ '%.2f'|format(result.total_ativos) }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total de Passivos</div>
+          <div class="stat-value">R$ {{ '%.2f'|format(result.total_passivos) }}</div>
+        </div>
+        <div class="stat highlight">
+          <div class="stat-label">Patrimônio Líquido</div>
+          <div class="stat-value">R$ {{ '%.2f'|format(result.patrimonio_liquido) }}</div>
+        </div>
+      </section>
+
+      <section class="details">
+        <h2>Detalhes</h2>
+        <div class="meta">
+          <div>Método: <strong>{{ result.metodo }}</strong></div>
+          {% if result.coluna_ativo %}<div>Coluna Ativo: <code>{{ result.coluna_ativo }}</code></div>{% endif %}
+          {% if result.coluna_passivo %}<div>Coluna Passivo: <code>{{ result.coluna_passivo }}</code></div>{% endif %}
+          {% if result.coluna_valor %}<div>Coluna Valor: <code>{{ result.coluna_valor }}</code></div>{% endif %}
+          {% if result.coluna_classificacao %}<div>Coluna Classificação: <code>{{ result.coluna_classificacao }}</code></div>{% endif %}
+          {% if result.coluna_descricao %}<div>Coluna Descrição: <code>{{ result.coluna_descricao }}</code></div>{% endif %}
+        </div>
+
+        {% if result.detalhes %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Classe</th>
+                <th class="num">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in result.detalhes %}
+                <tr>
+                  <td>{{ row.classe }}</td>
+                  <td class="num">R$ {{ '%.2f'|format(row.valor or 0) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>Nenhum detalhe disponível.</p>
+        {% endif %}
+      </section>
+
+      <div class="actions">
+        <a class="btn secondary" href="{{ url_for('index') }}">Nova Análise</a>
+      </div>
+
+      <footer class="footer">
+        <small>Os cálculos são baseados na planilha enviada. Revise os resultados.</small>
+      </footer>
+    </main>
+  </body>
+</html>
