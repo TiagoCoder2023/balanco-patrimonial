@@ -35,6 +35,9 @@
         <h2>Detalhes</h2>
         <div class="meta">
           <div>Método: <strong>{{ result.metodo }}</strong></div>
+          {% if result.metodo == "visao_computacional" %}
+            <div class="ai-badge">🤖 Análise com IA</div>
+          {% endif %}
           {% if result.coluna_ativo %}<div>Coluna Ativo: <code>{{ result.coluna_ativo }}</code></div>{% endif %}
           {% if result.coluna_passivo %}<div>Coluna Passivo: <code>{{ result.coluna_passivo }}</code></div>{% endif %}
           {% if result.coluna_valor %}<div>Coluna Valor: <code>{{ result.coluna_valor }}</code></div>{% endif %}
@@ -46,15 +49,27 @@
           <table class="table">
             <thead>
               <tr>
-                <th>Classe</th>
-                <th class="num">Valor</th>
+                {% if result.metodo == "visao_computacional" %}
+                  <th>Classificação</th>
+                  <th>Descrição</th>
+                  <th class="num">Valor</th>
+                {% else %}
+                  <th>Classe</th>
+                  <th class="num">Valor</th>
+                {% endif %}
               </tr>
             </thead>
             <tbody>
               {% for row in result.detalhes %}
                 <tr>
-                  <td>{{ row.classe }}</td>
-                  <td class="num">R$ {{ '%.2f'|format(row.valor or 0) }}</td>
+                  {% if result.metodo == "visao_computacional" %}
+                    <td>{{ row.classificacao }}</td>
+                    <td>{{ row.descricao }}</td>
+                    <td class="num">R$ {{ '%.2f'|format(row.valor or 0) }}</td>
+                  {% else %}
+                    <td>{{ row.classe }}</td>
+                    <td class="num">R$ {{ '%.2f'|format(row.valor or 0) }}</td>
+                  {% endif %}
                 </tr>
               {% endfor %}
             </tbody>

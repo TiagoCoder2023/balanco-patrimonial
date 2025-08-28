@@ -1,5 +1,7 @@
 import io
 import re
+import os
+import base64
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
@@ -7,11 +9,28 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 
 import pdfplumber
 import PyPDF2
+from openai import OpenAI
+from PIL import Image
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente
+load_dotenv()
+
+# Importa configurações
+try:
+    from _config_api.config import OPENAI_API_KEY, MAX_FILE_SIZE, SECRET_KEY
+except ImportError:
+    # Fallback para variáveis de ambiente
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    MAX_FILE_SIZE = 16 * 1024 * 1024
+    SECRET_KEY = "change-this-secret-key"
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 app = Flask(__name__)
-app.secret_key = "change-this-secret-key"
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
+app.secret_key = SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 
 
 def _normalize_string(value: str) -> str:
@@ -85,6 +104,32 @@ def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
 	# Padroniza nomes de colunas
 	columns_lower = {col: _normalize_string(str(col)) for col in df.columns}
 	print(f"DEBUG: Colunas normalizadas: {columns_lower}")
+
+	# 0) Caso especial: dados da visão computacional (formato padronizado)
+	if set(df.columns) == {"classificacao", "descricao", "valor"}:
+		print("DEBUG: Detectado formato da visão computacional")
+		df_copy = df.copy()
+		df_copy["valor"] = _coerce_numeric(df_copy["valor"])
+		
+		# Agrupa por classificação
+		agrupado = df_copy.groupby("classificacao")["valor"].sum()
+		total_ativos = float(agrupado.get("ativo", 0.0))
+		total_passivos = float(agrupado.get("passivo", 0.0))
+		
+		if total_ativos != 0.0 or total_passivos != 0.0:
+			pl = total_ativos - total_passivos
+			detalhes = df_copy.to_dict(orient="records")
+			return (
+				{
+					"metodo": "visao_computacional",
+					"total_ativos": total_ativos,
+					"total_passivos": total_passivos,
+					"patrimonio_liquido": pl,
+					"detalhes": detalhes,
+					"aviso": "Análise realizada com inteligência artificial da OpenAI (GPT-4o-mini)."
+				},
+				None,
+			)
 
 	# 1) Caso com colunas separadas para Ativo e Passivo
 	ativo_col = None
@@ -263,6 +308,129 @@ def calculate_balance_from_df(df: pd.DataFrame) -> Tuple[Dict, Optional[str]]:
 	return {}, "Não foi possível identificar colunas de Ativo e Passivo automaticamente."
 
 
+def analyze_with_vision_computer(file_content: bytes, filename: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+	"""
+	Analisa arquivos usando a API de visão computacional da OpenAI.
+	
+	Args:
+		file_content: Conteúdo do arquivo em bytes
+		filename: Nome do arquivo para identificação do tipo
+		
+	Returns:
+		(DataFrame, error_message)
+	"""
+	try:
+		# Converte o arquivo para base64
+		file_base64 = base64.b64encode(file_content).decode('utf-8')
+		
+		# Determina o tipo MIME baseado na extensão
+		mime_type = "application/pdf"
+		if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+			mime_type = "image/jpeg"
+		elif filename.lower().endswith('.pdf'):
+			mime_type = "application/pdf"
+		
+		# Prompt para análise de balanço patrimonial
+		system_prompt = """Você é um especialista em contabilidade e análise financeira. 
+		Analise o documento fornecido e extraia as informações de balanço patrimonial.
+		
+		INSTRUÇÕES:
+		1. Identifique todos os ativos e passivos
+		2. Classifique cada item corretamente
+		3. Extraia os valores numéricos
+		4. Retorne os dados em formato JSON estruturado
+		
+		FORMATO DE RESPOSTA:
+		{
+			"ativos": [
+				{"descricao": "Nome do ativo", "valor": 1000.00},
+				{"descricao": "Outro ativo", "valor": 500.00}
+			],
+			"passivos": [
+				{"descricao": "Nome do passivo", "valor": 300.00},
+				{"descricao": "Outro passivo", "valor": 200.00}
+			],
+			"observacoes": "Qualquer observação relevante sobre o documento"
+		}
+		
+		IMPORTANTE: Retorne APENAS o JSON, sem texto adicional."""
+		
+		# Chama a API da OpenAI com visão computacional
+		response = client.chat.completions.create(
+			model="gpt-4o-mini",
+			messages=[
+				{
+					"role": "system",
+					"content": system_prompt
+				},
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "Analise este documento e extraia as informações de balanço patrimonial. Retorne apenas o JSON conforme especificado."
+						},
+						{
+							"type": "image_url",
+							"image_url": {
+								"url": f"data:{mime_type};base64,{file_base64}"
+							}
+						}
+					]
+				}
+			],
+			max_tokens=2000,
+			temperature=0.1
+		)
+		
+		# Extrai a resposta
+		content = response.choices[0].message.content
+		
+		# Tenta extrair JSON da resposta
+		import json
+		try:
+			# Remove possíveis marcadores de código
+			if "```json" in content:
+				content = content.split("```json")[1].split("```")[0]
+			elif "```" in content:
+				content = content.split("```")[1]
+			
+			data = json.loads(content.strip())
+			
+			# Converte para DataFrame
+			rows = []
+			
+			# Adiciona ativos
+			for ativo in data.get("ativos", []):
+				rows.append({
+					"classificacao": "ativo",
+					"descricao": ativo.get("descricao", ""),
+					"valor": ativo.get("valor", 0.0)
+				})
+			
+			# Adiciona passivos
+			for passivo in data.get("passivos", []):
+				rows.append({
+					"classificacao": "passivo",
+					"descricao": passivo.get("descricao", ""),
+					"valor": passivo.get("valor", 0.0)
+				})
+			
+			if rows:
+				df = pd.DataFrame(rows)
+				return df, None
+			else:
+				return None, "Nenhum dado extraído da análise de visão computacional."
+				
+		except json.JSONDecodeError as e:
+			return None, f"Erro ao processar resposta da API: {e}. Resposta: {content[:200]}..."
+		except Exception as e:
+			return None, f"Erro ao processar dados extraídos: {e}"
+			
+	except Exception as e:
+		return None, f"Erro na análise com visão computacional: {e}"
+
+
 def extract_tables_from_pdf(content: bytes) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
 	"""
 	Extrai tabelas de um PDF usando pdfplumber e PyPDF2 como fallback.
@@ -338,6 +506,17 @@ def read_table_from_file_storage(file_storage) -> Tuple[Optional[pd.DataFrame], 
 
 	print(f"DEBUG: Tentando ler arquivo: {filename}")
 	print(f"DEBUG: Tamanho do arquivo: {len(content)} bytes")
+
+	# Primeiro tenta análise com visão computacional para imagens e PDFs
+	if filename.endswith(('.png', '.jpg', '.jpeg', '.pdf')):
+		print("DEBUG: Tentando análise com visão computacional")
+		vision_result, vision_error = analyze_with_vision_computer(content, filename)
+		if vision_result is not None and not vision_result.empty:
+			print("DEBUG: Visão computacional bem-sucedida")
+			return vision_result, None
+		else:
+			print(f"DEBUG: Visão computacional falhou: {vision_error}")
+			# Continua com métodos tradicionais para PDFs
 
 	# Tenta por extensão primeiro
 	try:
